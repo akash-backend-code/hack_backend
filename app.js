@@ -13,23 +13,24 @@ const Withdraw = require("./db/Withdraw");
 const myEmail = process.env.email;
 const mypass = process.env.password;
 const port = process.env.PORT || 8000;
-const Match = require("./db/Match");
+const Product = require("./db/Product");
 const os = require("os");
 const Razorpay = require("razorpay");
+const Buy = require("./db/Buy");
 const instance = new Razorpay({
   key_id: process.env.key_id,
   key_secret: process.env.key_secret,
 });
-const paymentRoutes = require('./Routes/Payment')
+const paymentRoutes = require("./Routes/Payment");
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
-app.use('/cashfree',paymentRoutes)
+app.use("/cashfree", paymentRoutes);
 
-// const appip = os.networkInterfaces().en0[2].address;
-// const appaddress = "http://[" + appip + "]:" + port + "/";
-// console.log("your online address: " + appaddress);
+const appip = os.networkInterfaces().en0[2].address;
+const appaddress = "http://[" + appip + "]:" + port + "/";
+console.log("your online address: " + appaddress);
 
 // Payment Gateway Routes
 //place an order of an amount
@@ -83,6 +84,34 @@ app.post("/payment/:data", async (req, res) => {
     });
   }
 });
+// withdraw function
+app.post("/withdraw", async (req, res) => {
+  const { id, amount, upi } = req.body;
+  try {
+    const user = await User.findOne({ _id: id });
+    if (!user) {
+      res.json({ msg: "user not found" });
+      return false;
+    }
+    if (user.balance < amount) {
+      res.json({ msg: "not enough balance" });
+      return false;
+    }
+    user.balance -= amount;
+    const withdraw = new Withdraw({
+      userid: id,
+      amount,
+      upi,
+    });
+    await user.save();
+    await withdraw.save();
+    console.log("withdraw success");
+    res.json({ msg: "success" });
+  } catch (e) {
+    console.log(e);
+    res.json({ msg: "something went wrong" });
+  }
+});
 
 //get the key
 app.get("/kzyvx", (req, res) => {
@@ -90,9 +119,7 @@ app.get("/kzyvx", (req, res) => {
 });
 
 app.get("/", async (req, res) => {
-  const data = await User.find();
-  res.send(data);
-  // res.send("hello bro");
+  res.send("hello bro");
   console.log('someone connected to the "/" route');
 });
 
@@ -174,11 +201,6 @@ app.post("/verify", async (req, res) => {
   }
 });
 
-// app.put("/update", async (req, res) => {
-//   let data = await User.updateOne({ name: "max" }, { $set: req.body });
-//   res.send(data);
-// });
-
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -210,144 +232,48 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.get("/admin", async (req, res) => {
-  const data = await Match.find();
-  res.send(data);
+//fetch all products
+app.get("/products", async (req, res) => {
+  const data = await Product.find();
+  res.json(data);
+});
+app.get("/products/:id", async (req, res) => {
+  const { id } = req.params;
+  const data = await Product.find({ userID: id });
+  res.json(data);
 });
 
-app.post("/add-match", async (req, res) => {
-  const { title, entryFee, winPrize, perKill, team, mode, time } = req.body;
-  const match = new Match({
-    title,
-    entryFee,
-    winPrize,
-    perKill,
-    team,
-    mode,
-    time,
-  });
-  const data = await match.save();
-  res.send(data);
-});
-
-app.delete("/delete-match", async (req, res) => {
-  const { id } = req.body;
-  const data = await Match.deleteOne({ _id: id });
-  res.send(data);
-});
-
-app.post("/playerwin", async (req, res) => {
-  const { userid, matchid, winprize } = req.body;
+app.get("/specificproduct/:id", async (req, res) => {
+  const { id } = req.params;
   try {
-    const match = await Match.findOne({ _id: matchid });
-    if (!match) {
-      res.send("match not found");
-      return;
-    }
-    const data = await Match.deleteOne({ _id: matchid });
-    const user = await User.findOne({ _id: userid });
-    user.balance += winprize;
-    user.save();
-    res.send("success");
-  } catch (e) {
-    res.send("something went wrong");
-    console.log(e);
-  }
-});
-
-app.get("/match/:_id", async (req, res) => {
-  const { _id } = req.params;
-  try {
-    const data = await Match.find({ _id });
+    const data = await Product.findOne({ _id: id });
     res.json(data);
   } catch (e) {
-    res.json({ msg: "match not found" });
-  }
-});
-
-app.post("/register", async (req, res) => {
-  const { id, name, gameid, gamelevel, matchid } = req.body;
-  try {
-    const match = await Match.findOne({ _id: matchid });
-
-    if (match.userOne[0] && match.userTwo[0]) {
-      res.json({ msg: "slots are already full" });
-      return;
-    }
-    if (match.userOne[0]) {
-      if (match.userOne[0] === id) {
-        res.json({ msg: "user already registered" });
-        return;
-      }
-    }
-    const user = await User.findOne({ _id: id });
-    if (user.balance < match.entryFee) {
-      res.json({ msg: "not enough balance" });
-      return;
-    } else {
-      user.balance -= match.entryFee;
-    }
-
-    if (match.userOne[0]) {
-      match.userTwo = [id, name, gameid, gamelevel];
-      match.entries += 1;
-      await match.save();
-      await user.save();
-    } else {
-      match.userOne = [id, name, gameid, gamelevel];
-      match.entries += 1;
-      await match.save();
-      await user.save();
-    }
-    console.log("player registered successfully");
-    res.json({ msg: "success" });
-  } catch (e) {
-    res.json({ msg: "something went wrong" });
-  }
-});
-
-app.post("/addroom", async (req, res) => {
-  const { id, roomid, pass } = req.body;
-  try {
-    const match = await Match.findOne({ _id: id });
-    if (!match) {
-      res.json({ msg: "match not found" });
-      return false;
-    }
-    match.roomDetails = [roomid, pass];
-    await match.save();
-    res.json({ msg: "success" });
-  } catch (e) {
-    res.json({ msg: "something went wrong" });
-  }
-});
-
-app.post("/withdraw", async (req, res) => {
-  const { id, amount, upi } = req.body;
-  try {
-    const user = await User.findOne({ _id: id });
-    if (!user) {
-      res.json({ msg: "user not found" });
-      return false;
-    }
-    if (user.balance < amount) {
-      res.json({ msg: "not enough balance" });
-      return false;
-    }
-    user.balance -= amount;
-    const withdraw = new Withdraw({
-      userid: id,
-      amount,
-      upi,
-    });
-    await user.save();
-    await withdraw.save();
-    console.log("withdraw success");
-    res.json({ msg: "success" });
-  } catch (e) {
     console.log(e);
-    res.json({ msg: "something went wrong" });
+    res.json({ msg: "error" });
   }
+});
+
+app.get("/searchproduct/:key", async (req, res) => {
+  console.log(req.params.key);
+  try {
+    let data = await Product.find({
+      $or: [
+        { pName: { $regex: req.params.key } },
+        { pType: { $regex: req.params.key } },
+        { pAddress: { $regex: req.params.key } },
+      ],
+    });
+    res.json(data);
+  } catch (e) {
+    res.json({ msg: "error" });
+  }
+});
+
+app.get("/deleteproduct/:id", async (req, res) => {
+  const { id } = req.params;
+  const data = await Product.deleteOne({ _id: id });
+  res.json(data);
 });
 
 app.get("/user/:_id", async (req, res) => {
@@ -360,6 +286,107 @@ app.get("/user/:_id", async (req, res) => {
   }
 });
 
+app.post("/addproduct", async (req, res) => {
+  const { pName, pPrice, pType, pAvailable, username, userid, pAddress } =
+    req.body;
+  try {
+    const data = new Product({
+      userName: username,
+      userID: userid,
+      pName,
+      pPrice,
+      pType,
+      pAvailable,
+      pAddress,
+    });
+    await data.save();
+    res.json({ msg: "success" });
+  } catch (e) {
+    console.log("an error happened ", e);
+    res.json({ msg: "error" });
+  }
+});
 
+app.post("/buy", async (req, res) => {
+  const { userID, quantity, productID } = req.body;
+  try {
+    const user = await User.findOne({ _id: userID });
+    const product = await Product.findOne({ _id: productID });
+    if (Number(quantity) * product.pPrice > user.balance) {
+      res.json({ msg: "error" });
+      return;
+    }
+    if (Number(quantity) > product.pAvailable) {
+      res.json({ msg: "error" });
+      return;
+    }
+    product.pAvailable -= Number(quantity);
+    user.balance -= Number(quantity) * product.pPrice;
+    const buy = new Buy({
+      userID: user._id,
+      sellerID: product.userID,
+      balance: Number(quantity) * product.pPrice,
+      pName: product.pName,
+      quantity: quantity,
+      pType: product.pType,
+    });
+    await buy.save();
+    await product.save();
+    await user.save();
+
+    console.log("success");
+
+    res.json({ msg: "success" });
+  } catch (e) {
+    console.log(e);
+    res.json({ msg: "error" });
+  }
+});
+
+app.get("/purchases/:key", async (req, res) => {
+  const arr = req.params.key.split(".");
+  try {
+    if (arr[0] === "u") {
+      let data = await Buy.find({ userID: arr[1] });
+      res.json(data);
+      return;
+    } else if (arr[0] === "s") {
+      let data = await Buy.find({ sellerID: arr[1] });
+      res.json(data);
+      return;
+    }
+    res.json({ msg: "error" });
+  } catch (e) {
+    console.log(e);
+    res.json({ msg: "error" });
+  }
+});
+
+app.get("/upurchase/:key", async (req, res) => {
+  let arr = req.params.key.split(".");
+  try {
+    if (arr[0] === "confirm") {
+      let buy = await Buy.findOne({ _id: arr[1] });
+      let user = await User.findOne({ _id: buy.sellerID });
+      user.balance += Number(buy.balance);
+      await user.save();
+      buy = await Buy.deleteOne({ _id: arr[1] });
+      res.json({ msg: "success" });
+      return;
+    } else if (arr[0] === "cancel") {
+      let buy = await Buy.findOne({ _id: arr[1] });
+      let user = await User.findOne({ _id: buy.userID });
+      user.balance += Number(buy.balance);
+      await user.save();
+      buy = await Buy.deleteOne({ _id: arr[1] });
+      res.json({ msg: "success" });
+      return;
+    }
+    res.json({ msg: "error" });
+  } catch (e) {
+    console.log(e);
+    res.json({ msg: "error" });
+  }
+});
 
 app.listen(port, () => console.log(`server is running on PORT: ${port}`));
