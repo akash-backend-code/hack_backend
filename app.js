@@ -28,9 +28,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use("/cashfree", paymentRoutes);
 
-const appip = os.networkInterfaces().en0[2].address;
-const appaddress = "http://[" + appip + "]:" + port + "/";
-console.log("your online address: " + appaddress);
+// const appip = os.networkInterfaces().en0[2].address;
+// const appaddress = "http://[" + appip + "]:" + port + "/";
+// console.log("your online address: " + appaddress);
 
 // Payment Gateway Routes
 //place an order of an amount
