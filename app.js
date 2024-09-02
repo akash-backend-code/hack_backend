@@ -28,7 +28,7 @@ const frontend = process.env.FRONTEND;
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: frontend,
     methods: ["GET", "POST"],
     credentials: true, // Use if needed for authentication
   },
