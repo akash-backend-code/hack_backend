@@ -24,7 +24,7 @@ const instance = new Razorpay({
   key_id: process.env.key_id,
   key_secret: process.env.key_secret,
 });
-const frontend = process.env.FRONTEND;
+const frontend = process.env.FRONTEND2;
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
