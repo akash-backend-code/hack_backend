@@ -17,16 +17,26 @@ const Product = require("./db/Product");
 const os = require("os");
 const Razorpay = require("razorpay");
 const Buy = require("./db/Buy");
+const http = require("http");
+const socketIo = require("socket.io");
+const Chat = require("./db/Chat.js");
 const instance = new Razorpay({
   key_id: process.env.key_id,
   key_secret: process.env.key_secret,
 });
-const paymentRoutes = require("./Routes/Payment");
+const frontend = process.env.FRONTEND;
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true, // Use if needed for authentication
+  },
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
-app.use("/cashfree", paymentRoutes);
 
 // const appip = os.networkInterfaces().en0[2].address;
 // const appaddress = "http://[" + appip + "]:" + port + "/";
@@ -286,6 +296,27 @@ app.get("/user/:_id", async (req, res) => {
   }
 });
 
+app.get("/productuser/:key", async (req, res) => {
+  const arr = req.params.key.split(".");
+  try {
+    if (arr[0] === "u") {
+      let data = await Buy.findOne({ _id: arr[1] });
+      let user = await User.findOne({ _id: data.userID });
+      res.json(user);
+      return;
+    } else if (arr[0] === "s") {
+      let data = await Buy.findOne({ _id: arr[1] });
+      let user = await User.findOne({ _id: data.sellerID });
+      res.json(user);
+      return;
+    }
+    res.json({ msg: "error" });
+  } catch (e) {
+    console.log(e);
+    res.json({ msg: "error" });
+  }
+});
+
 app.post("/addproduct", async (req, res) => {
   const { pName, pPrice, pType, pAvailable, username, userid, pAddress } =
     req.body;
@@ -333,6 +364,7 @@ app.post("/buy", async (req, res) => {
     await buy.save();
     await product.save();
     await user.save();
+    addChat(buy._id);
 
     console.log("success");
 
@@ -342,6 +374,12 @@ app.post("/buy", async (req, res) => {
     res.json({ msg: "error" });
   }
 });
+
+const addChat = async (buyid) => {
+  let cht = new Chat({ name: buyid });
+  await cht.save();
+  console.log("chat added", buyid);
+};
 
 app.get("/purchases/:key", async (req, res) => {
   const arr = req.params.key.split(".");
@@ -389,4 +427,95 @@ app.get("/upurchase/:key", async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`server is running on PORT: ${port}`));
+app.post("/deleteChat", async (req, res) => {
+  const { name, index } = req.body;
+  const user = await User.findOne({ name });
+  if (!user) {
+    console.log(name, index);
+    res.json({ msg: "user not found" });
+    return false;
+  }
+  let cht = user.chats;
+  user.chats = cht.filter((_, i) => Number(i) !== Number(index));
+  await user.save();
+  res.send(user.chats);
+});
+
+app.get("/data/:id", async (req, res) => {
+  const { id } = req.params;
+  const user = await User.findOne({ _id: id });
+  res.json(user);
+});
+
+app.get("/clearChat", async (req, res) => {
+  const chat = await Chat.findOne({ name: "global chat" });
+  chat.chats = [];
+  await chat.save();
+  res.json({ msg: "success" });
+});
+
+const getUsers = async (room) => {
+  try {
+    // Fetch all sockets connected to the specified room
+    const socketsInRoom = await io.in(room).fetchSockets();
+    // Map the sockets to an array of user data (e.g., socket IDs)
+    const usersInRoom = socketsInRoom.map((s) => ({
+      name: s.name,
+      // Add more properties as needed (e.g., username, etc.)
+    }));
+    // Send the list of users in the room back to the client
+    io.to(room).emit("connected_users", usersInRoom);
+  } catch (error) {
+    console.error(`Failed to fetch sockets in room ${room}:`, error);
+  }
+};
+
+const sendChat = async (msg, name, room, chats) => {
+  let newChat = [...chats, [name, msg]];
+  io.to(room).emit("chat", newChat);
+  let chatData = await Chat.findOne({ name: room });
+  chatData.chats = newChat;
+  await chatData.save();
+};
+
+const deleteChat = async (index, room, chats) => {
+  let newChat = chats.filter((_, i) => i !== index);
+  io.to(room).emit("chat", newChat);
+  let chatData = await Chat.findOne({ name: room });
+  chatData.chats = newChat;
+  await chatData.save();
+};
+
+io.on("connection", (socket) => {
+  socket.on("join_room", async ({ room, name }) => {
+    socket.join(room);
+    socket.name = name;
+    socket.room = room;
+    console.log("a user connected:", name, "  and joined room:", room);
+    getUsers(room);
+    let chats = await Chat.findOne({ name: room });
+    if (chats) {
+      socket.emit("chat", chats.chats);
+    }
+  });
+
+  socket.on("send_message", ({ msg, name, room, chats }) => {
+    sendChat(msg, name, room, chats);
+  });
+
+  socket.on("delete_message", ({ i, room, chats }) => {
+    deleteChat(i, room, chats);
+  });
+
+  socket.on("leave", async (room) => {
+    await socket.leave(room);
+    socket.disconnect();
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected: ", socket.name);
+    getUsers(socket.room);
+  });
+});
+
+server.listen(port, () => console.log(`server is running on PORT: ${port}`));
